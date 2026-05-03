@@ -140,6 +140,50 @@ def write_pre(out_dir: Path, leads_sdf: Path, receptor: Path, cfg: MMCfg) -> Non
         csv.writer(fh).writerows(rows)
 
 
+_SOLVENT_RESNAMES = {"HOH", "WAT", "TIP", "TIP3", "NA", "CL", "Na+", "Cl-", "SOD", "CLA"}
+
+
+def _find_lead_sdf(run_dir: Path, lead: str) -> Path | None:
+    candidates = [
+        run_dir.parent.parent / "_leads" / f"{lead}.sdf",
+        run_dir.parent / f"{lead}.sdf",
+    ]
+    for c in candidates:
+        if c.exists():
+            return c
+    return None
+
+
+def _build_run_systems(receptor_pdb: Path, ligand_sdf: Path, ff_name: str):
+    sys_full, modeller, n_recep = build_complex_system(receptor_pdb, ligand_sdf, ff_name)
+    n_total = modeller.topology.getNumAtoms()
+    rec_atoms = list(range(n_recep))
+    lig_atoms = list(range(n_recep, n_total))
+
+    rec_top, _, ff_r = subset_system(sys_full, modeller, rec_atoms, ff_name)
+    rec_sys = ff_r.createSystem(rec_top, nonbondedMethod=app.NoCutoff)
+
+    lig_top, _, ff_l = subset_system(sys_full, modeller, lig_atoms, ff_name)
+    lig_sys = ff_l.createSystem(lig_top, nonbondedMethod=app.NoCutoff)
+
+    plat = mm.Platform.getPlatformByName("CPU")
+    ctx_full = mm.Context(sys_full, mm.VerletIntegrator(1.0 * u.femtosecond), plat)
+    ctx_rec = mm.Context(rec_sys, mm.VerletIntegrator(1.0 * u.femtosecond), plat)
+    ctx_lig = mm.Context(lig_sys, mm.VerletIntegrator(1.0 * u.femtosecond), plat)
+    return ctx_full, ctx_rec, ctx_lig, n_recep, n_total
+
+
+def _ctx_energy(ctx: mm.Context) -> float:
+    return float(
+        ctx.getState(getEnergy=True).getPotentialEnergy().value_in_unit(u.kilocalorie_per_mole)
+    )
+
+
+def _frame_solute_positions(traj_frame, n_solute: int):
+    xyz_nm = traj_frame.xyz[0, :n_solute, :]
+    return [mm.Vec3(float(x), float(y), float(z)) for x, y, z in xyz_nm] * u.nanometer
+
+
 def write_post(out_dir: Path, runs_json: Path, cfg: MMCfg) -> None:
     import mdtraj as md
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -153,33 +197,83 @@ def write_post(out_dir: Path, runs_json: Path, cfg: MMCfg) -> None:
         final_pdb = rd / "final.pdb"
         if not (top_pdb.exists() and final_pdb.exists()):
             continue
+        lead_sdf = _find_lead_sdf(rd, r["lead"])
+        if lead_sdf is None:
+            sys.stderr.write(f"missing lead sdf for {r['lead']}; skipping\n")
+            continue
+
+        receptor_only_pdb = rd / "_receptor_only.pdb"
+        if not receptor_only_pdb.exists():
+            _write_receptor_only(top_pdb, receptor_only_pdb)
+
         try:
-            traj = md.load_dcd(str(traj_dcd), top=str(top_pdb)) if traj_dcd.exists() else None
-        except Exception:
+            ctx_full, ctx_rec, ctx_lig, n_rec, n_tot = _build_run_systems(
+                receptor_only_pdb, lead_sdf, cfg.forcefield
+            )
+        except Exception as e:
+            sys.stderr.write(f"system build failed for {r['lead']}/{r['seed']}: {e}\n")
+            continue
+
+        try:
+            top = md.load_topology(str(top_pdb))
+            solute_idx = top.select(
+                "not water and not resname NA and not resname CL "
+                "and not resname 'Na+' and not resname 'Cl-' "
+                "and not resname SOD and not resname CLA"
+            )
+            traj = md.load_dcd(str(traj_dcd), top=str(top_pdb), atom_indices=solute_idx) \
+                if traj_dcd.exists() else None
+        except Exception as e:
+            sys.stderr.write(f"trajectory load failed for {r['lead']}/{r['seed']}: {e}\n")
             traj = None
+
         n_frames = traj.n_frames if traj is not None else 1
         start = int(n_frames * cfg.frames_start_pct / 100.0)
         idx = list(range(start, n_frames, cfg.frames_stride)) if traj is not None else [0]
+        if not idx:
+            idx = [n_frames - 1] if n_frames else [0]
+
         for fi in idx:
             try:
                 if traj is not None:
-                    pdb_p = rd / f"_frame_{fi:04d}.pdb"
-                    traj[fi].save_pdb(str(pdb_p))
+                    full_pos = _frame_solute_positions(traj[fi], n_tot)
                 else:
-                    pdb_p = final_pdb
-                rows.append([r["lead"], r["seed"], fi, _frame_dG(pdb_p, rd, cfg)])
-                if pdb_p != final_pdb:
-                    pdb_p.unlink(missing_ok=True)
+                    md_final = md.load_pdb(str(final_pdb))
+                    sub = md_final.atom_slice(md_final.topology.select(
+                        "not water and not resname NA and not resname CL"
+                    ))
+                    full_pos = _frame_solute_positions(sub, n_tot)
+                rec_pos = full_pos[:n_rec]
+                lig_pos = full_pos[n_rec:n_tot]
+                ctx_full.setPositions(full_pos)
+                ctx_rec.setPositions(rec_pos)
+                ctx_lig.setPositions(lig_pos)
+                dG = _ctx_energy(ctx_full) - _ctx_energy(ctx_rec) - _ctx_energy(ctx_lig)
+                rows.append([r["lead"], r["seed"], fi, dG])
             except Exception as e:
                 sys.stderr.write(f"frame mmgbsa failed {r['lead']}/{r['seed']}@{fi}: {e}\n")
                 continue
+
+        del ctx_full, ctx_rec, ctx_lig
+
     with open(out_dir / "mmgbsa_post.csv", "w", newline="") as fh:
         csv.writer(fh).writerows(rows)
     _summarize(out_dir / "mmgbsa_post.csv", out_dir / "mmgbsa_post_summary.csv")
 
 
-def _frame_dG(pdb_path: Path, run_dir: Path, cfg: MMCfg) -> float:
-    return 0.0
+def _write_receptor_only(topology_pdb: Path, out_pdb: Path) -> None:
+    with open(topology_pdb) as fh, open(out_pdb, "w") as fw:
+        for line in fh:
+            rec = line[:6]
+            if rec == "ATOM  ":
+                resn = line[17:20].strip()
+                if resn in _SOLVENT_RESNAMES:
+                    continue
+                fw.write(line)
+            elif rec in ("TER   ", "END   ", "ENDMDL"):
+                fw.write(line)
+            elif rec.startswith(("CRYST", "MODEL", "HEADER", "TITLE", "REMARK")):
+                fw.write(line)
 
 
 def _summarize(in_csv: Path, out_csv: Path) -> None:

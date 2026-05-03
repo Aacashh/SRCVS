@@ -74,8 +74,11 @@ def embed3d(mol: Chem.Mol, seed: int = 42) -> Chem.Mol | None:
 def to_pdbqt(mol: Chem.Mol, out_path: Path) -> bool:
     from meeko import MoleculePreparation, PDBQTWriterLegacy
     prep = MoleculePreparation()
-    prep.prepare(mol)
-    pdbqt_string, is_ok, _ = PDBQTWriterLegacy.write_string(prep.setup)
+    setups = prep.prepare(mol)
+    if not setups:
+        return False
+    setup = setups[0] if isinstance(setups, list) else setups
+    pdbqt_string, is_ok, _ = PDBQTWriterLegacy.write_string(setup)
     if not is_ok:
         return False
     out_path.parent.mkdir(parents=True, exist_ok=True)
