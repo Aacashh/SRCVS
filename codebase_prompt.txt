@@ -1,0 +1,59 @@
+You will generate a complete reproducible codebase implementing the pipeline in research_directive_v2.md (provided as context). Output the full codebase only. No discussion, no plan, no prose between files.
+
+TARGET: Ubuntu 22.04+. Single entry point: `bash run.sh`.
+
+HARD RULES:
+- Zero code comments except shebangs.
+- Zero print/echo except errors (stderr, one line) and a final JSON manifest path.
+- Zero markdown files except README.md, which contains only three sections: Prereqs, Usage, Exit codes.
+- `set -euo pipefail` in every .sh file.
+- All package versions pinned with `==` in environment.yml and requirements.txt.
+- Idempotent: re-running skips completed phases unless `--force`.
+- No hardcoded paths or parameters; everything from config.yaml or argparse.
+- Fail fast. No try/except unless catching a specific recoverable error.
+
+PROJECT LAYOUT (create exactly):
+./run.sh
+./README.md
+./environment.yml
+./requirements.txt
+./config.yaml
+./env/setup.sh
+./data/fetch.sh
+./scripts/phase1_target.py
+./scripts/phase2_library.py
+./scripts/phase3_dock.py
+./scripts/phase4_admet.py
+./scripts/phase5_select.py
+./scripts/phase6_mmgbsa_pre.py
+./scripts/phase7_md.py
+./scripts/phase8_analyze.py
+./scripts/phase9_mmgbsa_post.py
+./scripts/schrodinger/{prep,ligprep,vsw,qikprop,mmgbsa,desmond}.sh
+./scripts/oss/{prep,ligprep,dock,admet,mmpbsa,md,analyze}.py
+./tests/smoke.sh
+./out/{01_target,02_library,03_dock,04_admet,05_select,06_mmgbsa_pre,07_md,08_analysis,09_mmgbsa_post,logs}/.gitkeep
+
+run.sh FLAGS:
+  --phase N        run only phase N (1..9)
+  --stack S        schrodinger | oss (default oss)
+  --force          rerun completed phases
+  --dry            print plan, do not execute
+
+CORE BEHAVIORS:
+- env/setup.sh installs miniforge if absent, creates conda env `srcvs` from environment.yml. Idempotent.
+- data/fetch.sh downloads: PDB 3G5D, PubChem SDFs for dasatinib (CID 3062316), bosutinib (5328940), saracatinib (10302451), PP1 (4878), PP2 (4879); DUD-E SRC actives + decoys. Retries 3x. SHA256 verified. NuBBE/Enamine: if file absent, write one-line auth instruction to stderr and exit 3.
+- Each phaseN script reads config.yaml, writes out/<phase>/manifest.json listing its output paths.
+- Schrödinger scripts require $SCHRODINGER env var; exit 2 if unset with one-line error.
+- OSS stack uses AutoDock Vina, OpenMM, MDAnalysis, RDKit, gmx_MMPBSA.
+- tests/smoke.sh runs full pipeline on a 50-ligand subset and asserts every phase manifest exists.
+
+STYLE:
+- Python: type hints on public functions, dataclasses for config schema, snake_case, no docstrings on private functions, black line length 100.
+- Bash: `[[ ]]`, `$()`, lowercase locals, functions as `name() { }`.
+- Logging: append to out/logs/<phase>.log only; stdout silent on success.
+- Errors: one-line stderr.
+- Exit codes: 0 ok, 1 generic, 2 missing dependency, 3 missing data file, 4 bad config.
+
+OUTPUT FORMAT:
+Each file as a fenced code block. First line of every block: `# path: <relative_path>`. No text between blocks.

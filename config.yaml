@@ -1,0 +1,106 @@
+project:
+  root: .
+  out_dir: out
+  log_dir: out/logs
+  raw_dir: data/raw
+
+target:
+  pdb_id: 3G5D
+  ligand_resname: 1N1
+  prep:
+    ph: 7.0
+    rmsd: 0.30
+    forcefield: S-OPLS
+  grid:
+    inner: [12.0, 12.0, 12.0]
+    outer: [24.0, 24.0, 24.0]
+  redock_rmsd_threshold: 2.0
+  catalytic_residues: [298, 310, 339, 341, 386, 405]
+
+library:
+  sources:
+    - name: nubbe
+      file: nubbe_full.sdf
+    - name: enamine
+      file: enamine_np.sdf
+  ligprep:
+    ph: 7.0
+    pht: 2.0
+    max_stereo: 8
+    max_tautomers: 4
+    forcefield_id: 16
+  include_controls: true
+  max_input_compounds: 0
+
+docking:
+  htvs_keep_pct: 10
+  sp_keep_pct: 10
+  xp_top_n: 50
+  exhaustiveness: 16
+  num_modes: 5
+  cpu: 8
+
+admet:
+  lipinski_max_violations: 1
+  pains_filter: true
+  bbb_logbb_min: -3.0
+  bbb_logbb_max: 1.2
+  herg_logic50_min: -5.0
+  caco2_min: 25
+  mdck_min: 25
+
+selection:
+  n_leads: 10
+  cluster_cutoff: 0.4
+  fp_radius: 2
+  fp_bits: 2048
+
+mmgbsa_pre:
+  job_type: REAL_MIN
+
+md:
+  box_buffer_nm: 1.0
+  solvent: tip3p
+  ion_concentration_M: 0.15
+  temperature_K: 300.0
+  pressure_bar: 1.01325
+  production_ns: 100
+  trajectory_interval_ps: 100
+  replicates: 3
+  forcefield: amber14-all.xml
+  water_model: amber14/tip3p.xml
+  timestep_fs: 2.0
+  equilibration_ns: 1.0
+
+analysis:
+  stable_window_ns: 50
+
+mmgbsa_post:
+  frames_stride: 10
+  frames_start_pct: 50
+
+controls:
+  - name: dasatinib
+    cid: 3062316
+  - name: bosutinib
+    cid: 5328940
+  - name: saracatinib
+    cid: 10302451
+  - name: pp1
+    cid: 4878
+  - name: pp2
+    cid: 4879
+
+datasets:
+  pdb_url_template: "https://files.rcsb.org/download/{pdb_id}.pdb"
+  pubchem_sdf_template: "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/{cid}/SDF?record_type=3d"
+  pubchem_sdf_2d_template: "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/{cid}/SDF"
+  dude_actives_url: "https://dude.docking.org/targets/src/actives_final.ism"
+  dude_decoys_url: "https://dude.docking.org/targets/src/decoys_final.ism"
+
+checksums: {}
+
+resources:
+  cores: 16
+  gpu: true
+  schrodinger_host: localhost
