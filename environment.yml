@@ -6,9 +6,9 @@ dependencies:
   - python==3.10.14
   - pip==24.0
   - rdkit==2024.03.5
-  - openmm==8.1.2
+  - openmm==8.2.0
   - openmmforcefields==0.14.0
-  - openff-toolkit==0.16.2
+  - openff-toolkit==0.16.6
   - mdanalysis==2.7.0
   - mdtraj==1.10.0
   - pdbfixer==1.9
