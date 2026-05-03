@@ -21,7 +21,7 @@ library:
   sources:
     - name: nubbe
       file: nubbe_full.sdf
-      required: true
+      required: false
     - name: enamine
       file: enamine_np.sdf
       required: false

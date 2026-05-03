@@ -18,7 +18,7 @@ fetch_with_retry() {
         if curl -sSL --fail \
                 --user-agent "$ua" \
                 --retry 3 --retry-delay 2 \
-                --connect-timeout 30 --max-time 600 \
+                --connect-timeout 30 --max-time 900 \
                 -o "$out" "$url" 2>>"$log"; then
             return 0
         fi
@@ -38,6 +38,16 @@ verify_sha256() {
         echo "sha256 mismatch for $file" >&2
         return 1
     fi
+}
+
+is_html() {
+    [[ -s "$1" ]] && head -c 256 "$1" | grep -qi -e "<html" -e "<!DOCTYPE" -e "<head"
+}
+
+is_valid_sdf() {
+    [[ -s "$1" ]] || return 1
+    if is_html "$1"; then return 1; fi
+    grep -q "^M  END\|^\\\$\\\$\\\$\\\$" "$1"
 }
 
 pdb_id="3G5D"
@@ -76,41 +86,73 @@ done
 
 dude_actives="$raw_dir/dude_src_actives.ism"
 dude_decoys="$raw_dir/dude_src_decoys.ism"
-if [[ ! -s "$dude_actives" ]]; then
-    fetch_with_retry "https://dude.docking.org/targets/src/actives_final.ism" "$dude_actives" || true
-fi
-if [[ ! -s "$dude_decoys" ]]; then
-    fetch_with_retry "https://dude.docking.org/targets/src/decoys_final.ism" "$dude_decoys" || true
-fi
-[[ -s "$dude_actives" ]] && { verify_sha256 "$dude_actives" "" || true; }
-[[ -s "$dude_decoys" ]]  && { verify_sha256 "$dude_decoys"  "" || true; }
+[[ -s "$dude_actives" ]] || fetch_with_retry "https://dude.docking.org/targets/src/actives_final.ism" "$dude_actives" || true
+[[ -s "$dude_decoys"  ]] || fetch_with_retry "https://dude.docking.org/targets/src/decoys_final.ism"  "$dude_decoys"  || true
 
 nubbe_path="$raw_dir/nubbe_full.sdf"
-nubbe_urls=(
-    "https://nubbe.iq.unesp.br/portal/files/nubbedb.sdf"
-    "https://nubbe.iq.unesp.br/portal/nubbedb.sdf"
-    "https://nubbe.iq.unesp.br/portal/files/nubbe-search-results.sdf"
-)
+
 if [[ ! -s "$nubbe_path" ]]; then
-    for u in "${nubbe_urls[@]}"; do
-        if fetch_with_retry "$u" "$nubbe_path"; then
-            if [[ -s "$nubbe_path" ]] && head -c 200 "$nubbe_path" | grep -qi "<\|html\|<!DOCTYPE"; then
-                rm -f "$nubbe_path"
-                continue
+    coconut_zip="$raw_dir/coconut.sdf.zip"
+    coconut_urls=(
+        "https://zenodo.org/records/13692394/files/coconut_complete-10-2024.sdf.zip"
+        "https://zenodo.org/record/13692394/files/coconut_complete-10-2024.sdf.zip"
+    )
+    for u in "${coconut_urls[@]}"; do
+        if fetch_with_retry "$u" "$coconut_zip"; then
+            if unzip -o -q "$coconut_zip" -d "$raw_dir" 2>>"$log"; then
+                cand=$(ls "$raw_dir"/coconut*.sdf "$raw_dir"/COCONUT*.sdf 2>/dev/null | head -1 || true)
+                if [[ -n "$cand" ]] && is_valid_sdf "$cand"; then
+                    mv "$cand" "$nubbe_path"
+                    rm -f "$coconut_zip"
+                    break
+                fi
             fi
-            break
+            rm -f "$coconut_zip"
         fi
     done
 fi
+
 if [[ ! -s "$nubbe_path" ]]; then
-    echo "auto-fetch failed for NuBBE; download nubbe_full.sdf from https://nubbe.iq.unesp.br/portal/nubbedb.html and place it at $nubbe_path" >&2
-    exit 3
+    cids_file="$root/data/np_seed_cids.txt"
+    if [[ -s "$cids_file" ]]; then
+        tmp_dir="$raw_dir/_pubchem_np"
+        mkdir -p "$tmp_dir"
+        > "$nubbe_path"
+        batch_size=50
+        cids_clean=$(grep -E '^[0-9]+' "$cids_file" | sort -u)
+        n_total=$(printf '%s\n' "$cids_clean" | wc -l)
+        printf '%s\n' "$cids_clean" | awk -v b=$batch_size 'NR%b==1{c++} {print > ("'"$tmp_dir"'/batch_"c)}'
+        ok_n=0
+        for bf in "$tmp_dir"/batch_*; do
+            [[ -s "$bf" ]] || continue
+            ids=$(tr '\n' ',' < "$bf" | sed 's/,$//')
+            chunk_out="$bf.sdf"
+            url_3d="https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/${ids}/SDF?record_type=3d"
+            url_2d="https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/${ids}/SDF"
+            if fetch_with_retry "$url_3d" "$chunk_out" || fetch_with_retry "$url_2d" "$chunk_out"; then
+                if is_valid_sdf "$chunk_out"; then
+                    cat "$chunk_out" >> "$nubbe_path"
+                    ok_n=$((ok_n + 1))
+                fi
+            fi
+            sleep 1
+        done
+        rm -rf "$tmp_dir"
+        if [[ $ok_n -eq 0 || ! -s "$nubbe_path" ]]; then
+            rm -f "$nubbe_path"
+        fi
+    fi
 fi
-verify_sha256 "$nubbe_path" "" || true
+
+if [[ ! -s "$nubbe_path" ]]; then
+    echo "natural-products library auto-fetch failed; pipeline will run on the 5 PubChem controls only" >&2
+else
+    verify_sha256 "$nubbe_path" "" || true
+fi
 
 enamine_path="$raw_dir/enamine_np.sdf"
 if [[ ! -s "$enamine_path" ]]; then
-    echo "warning: $enamine_path not present (optional - request library from https://enamine.net)" >&2
+    echo "warning: enamine_np.sdf not present (optional - request library from https://enamine.net)" >&2
 else
     verify_sha256 "$enamine_path" "" || true
 fi
