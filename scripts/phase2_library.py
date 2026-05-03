@@ -80,12 +80,19 @@ def main() -> int:
     sdf_inputs: list[Path] = []
     for src in cfg.sources:
         p = cfg.raw_dir / src["file"]
+        required = bool(src.get("required", True))
         if not p.exists():
-            sys.stderr.write(f"missing library: {p}\n")
-            return 3
+            if required:
+                sys.stderr.write(f"missing required library: {p}\n")
+                return 3
+            sys.stderr.write(f"warning: optional library not found, skipping: {p}\n")
+            continue
         sdf_inputs.append(p)
     if cfg.include_controls:
         sdf_inputs.extend(sorted(cfg.raw_dir.glob("control_*.sdf")))
+    if not sdf_inputs:
+        sys.stderr.write("no ligand sources available\n")
+        return 3
 
     out_dir.mkdir(parents=True, exist_ok=True)
     if a.stack == "schrodinger":

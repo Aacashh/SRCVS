@@ -21,8 +21,10 @@ library:
   sources:
     - name: nubbe
       file: nubbe_full.sdf
+      required: true
     - name: enamine
       file: enamine_np.sdf
+      required: false
   ligprep:
     ph: 7.0
     pht: 2.0
