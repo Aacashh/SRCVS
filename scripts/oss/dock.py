@@ -10,7 +10,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
-from rdkit import Chem
 
 
 @dataclass
@@ -37,6 +36,15 @@ def read_cfg(path: Path) -> DockCfg:
     )
 
 
+def find_docking_binary() -> str:
+    for name in ("vina", "smina", "qvina2", "qvina-w"):
+        p = shutil.which(name)
+        if p:
+            return p
+    sys.stderr.write("no docking binary found in PATH (install via: sudo apt install -y autodock-vina)\n")
+    sys.exit(2)
+
+
 def receptor_to_pdbqt(receptor: Path, out_pdbqt: Path) -> None:
     out_pdbqt.parent.mkdir(parents=True, exist_ok=True)
     if shutil.which("obabel") is None:
@@ -48,18 +56,53 @@ def receptor_to_pdbqt(receptor: Path, out_pdbqt: Path) -> None:
     )
 
 
-def dock_one(vina, ligand_pdbqt: Path, out_pdbqt: Path, cfg: DockCfg, exh: int) -> float | None:
-    vina.set_ligand_from_file(str(ligand_pdbqt))
-    vina.dock(exhaustiveness=exh, n_poses=cfg.num_modes)
-    energies = vina.energies(n_poses=cfg.num_modes)
-    if len(energies) == 0:
+def parse_score(pdbqt_path: Path) -> float | None:
+    if not pdbqt_path.exists():
         return None
+    with open(pdbqt_path) as fh:
+        for line in fh:
+            if line.startswith("REMARK VINA RESULT"):
+                parts = line.split()
+                if len(parts) >= 4:
+                    try:
+                        return float(parts[3])
+                    except ValueError:
+                        return None
+            if line.startswith("REMARK minimizedAffinity"):
+                parts = line.split()
+                if len(parts) >= 3:
+                    try:
+                        return float(parts[2])
+                    except ValueError:
+                        return None
+    return None
+
+
+def dock_one(binary: str, receptor_pdbqt: Path, ligand_pdbqt: Path, out_pdbqt: Path,
+             center: list, size: list, cfg: DockCfg, exh: int) -> float | None:
     out_pdbqt.parent.mkdir(parents=True, exist_ok=True)
-    vina.write_poses(str(out_pdbqt), n_poses=cfg.num_modes, overwrite=True)
-    return float(energies[0][0])
+    cmd = [
+        binary,
+        "--receptor", str(receptor_pdbqt),
+        "--ligand", str(ligand_pdbqt),
+        "--center_x", f"{center[0]:.3f}",
+        "--center_y", f"{center[1]:.3f}",
+        "--center_z", f"{center[2]:.3f}",
+        "--size_x", f"{size[0]:.3f}",
+        "--size_y", f"{size[1]:.3f}",
+        "--size_z", f"{size[2]:.3f}",
+        "--exhaustiveness", str(exh),
+        "--num_modes", str(cfg.num_modes),
+        "--out", str(out_pdbqt),
+        "--cpu", "1",
+    ]
+    res = subprocess.run(cmd, capture_output=True, text=True)
+    if res.returncode != 0:
+        return None
+    return parse_score(out_pdbqt)
 
 
-def write_csv(path: Path, header: list[str], rows: list[list]) -> None:
+def write_csv(path: Path, header: list, rows: list) -> None:
     with open(path, "w", newline="") as fh:
         w = csv.writer(fh)
         w.writerow(header)
@@ -67,7 +110,7 @@ def write_csv(path: Path, header: list[str], rows: list[list]) -> None:
 
 
 def pose_pdbqt_to_sdf(pdbqt: Path, out_sdf: Path) -> None:
-    if shutil.which("obabel") is None:
+    if shutil.which("obabel") is None or not pdbqt.exists():
         return
     subprocess.run(
         ["obabel", str(pdbqt), "-O", str(out_sdf), "-l", "1"],
@@ -92,62 +135,54 @@ def main() -> int:
 
     with open(a.grid) as fh:
         grid = json.load(fh)
+    center = grid["center"]
+    size = grid["outer"]
+
+    binary = find_docking_binary()
 
     receptor_pdbqt = a.out_dir / "receptor.pdbqt"
     if not receptor_pdbqt.exists():
         receptor_to_pdbqt(a.receptor, receptor_pdbqt)
-
-    from vina import Vina
-    v = Vina(sf_name="vina", cpu=cfg.cpu, verbosity=0)
-    v.set_receptor(str(receptor_pdbqt))
-    v.compute_vina_maps(center=grid["center"], box_size=grid["outer"])
 
     ligand_files = sorted(a.pdbqt_dir.glob("*.pdbqt"))
     if not ligand_files:
         sys.stderr.write(f"no ligand pdbqt files in {a.pdbqt_dir}\n")
         return 3
 
-    htvs_rows: list[list] = []
+    htvs_rows: list = []
+    htvs_dir = poses_dir / "_htvs"
     for lp in ligand_files:
-        out_p = poses_dir / "_htvs" / f"{lp.stem}.pdbqt"
-        score = None
-        try:
-            score = dock_one(v, lp, out_p, cfg, exh=max(4, cfg.exhaustiveness // 2))
-        except Exception as e:
-            sys.stderr.write(f"htvs dock failed for {lp.name}: {e}\n")
+        out_p = htvs_dir / f"{lp.stem}.pdbqt"
+        score = dock_one(binary, receptor_pdbqt, lp, out_p, center, size, cfg,
+                         exh=max(4, cfg.exhaustiveness // 2))
         if score is not None:
             htvs_rows.append([lp.stem, score, str(out_p)])
-
     htvs_rows.sort(key=lambda r: r[1])
     write_csv(a.out_dir / "htvs_scores.csv", ["title", "score", "pose"], htvs_rows)
 
     n_sp = max(1, int(len(htvs_rows) * cfg.htvs_keep_pct / 100.0))
     sp_inputs = htvs_rows[:n_sp]
-    sp_rows: list[list] = []
+    sp_rows: list = []
+    sp_dir = poses_dir / "_sp"
     for title, _, _ in sp_inputs:
         lp = a.pdbqt_dir / f"{title}.pdbqt"
-        out_p = poses_dir / "_sp" / f"{title}.pdbqt"
-        try:
-            score = dock_one(v, lp, out_p, cfg, exh=cfg.exhaustiveness)
-        except Exception as e:
-            sys.stderr.write(f"sp dock failed for {title}: {e}\n")
-            continue
+        out_p = sp_dir / f"{title}.pdbqt"
+        score = dock_one(binary, receptor_pdbqt, lp, out_p, center, size, cfg,
+                         exh=cfg.exhaustiveness)
         if score is not None:
             sp_rows.append([title, score, str(out_p)])
     sp_rows.sort(key=lambda r: r[1])
     write_csv(a.out_dir / "sp_scores.csv", ["title", "score", "pose"], sp_rows)
 
-    n_xp = max(1, int(len(sp_rows) * cfg.sp_keep_pct / 100.0))
-    xp_inputs = sp_rows[:max(n_xp, cfg.xp_top_n)] if cfg.xp_top_n else sp_rows[:n_xp]
-    xp_rows: list[list] = []
+    n_xp_pct = max(1, int(len(sp_rows) * cfg.sp_keep_pct / 100.0))
+    n_xp = max(n_xp_pct, cfg.xp_top_n) if cfg.xp_top_n else n_xp_pct
+    xp_inputs = sp_rows[:n_xp]
+    xp_rows: list = []
     for title, _, _ in xp_inputs:
         lp = a.pdbqt_dir / f"{title}.pdbqt"
         out_p = poses_dir / f"{title}.pdbqt"
-        try:
-            score = dock_one(v, lp, out_p, cfg, exh=cfg.exhaustiveness * 2)
-        except Exception as e:
-            sys.stderr.write(f"xp dock failed for {title}: {e}\n")
-            continue
+        score = dock_one(binary, receptor_pdbqt, lp, out_p, center, size, cfg,
+                         exh=cfg.exhaustiveness * 2)
         if score is not None:
             sdf_p = poses_dir / f"{title}.sdf"
             pose_pdbqt_to_sdf(out_p, sdf_p)

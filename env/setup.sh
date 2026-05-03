@@ -36,9 +36,17 @@ ensure_env() {
     if [[ -x "$mamba" ]]; then
         "$mamba" env create -f "$root/environment.yml" -n "$env_name" >/dev/null
     else
-        "$conda" env create -f "$root/environment.yml" -n "$env_name" >/dev/null
+        "$conda" env create -f "$root/environment.yml" -n "$env_name" --solver=libmamba >/dev/null
     fi
+}
+
+ensure_docking_binary() {
+    if command -v vina >/dev/null 2>&1 || command -v smina >/dev/null 2>&1; then
+        return 0
+    fi
+    echo "warning: no docking binary on PATH (run: sudo apt install -y autodock-vina)" >&2
 }
 
 ensure_miniforge
 ensure_env
+ensure_docking_binary

@@ -5,8 +5,7 @@ channels:
 dependencies:
   - python==3.10.14
   - pip==24.0
-  - rdkit==2023.09.6
-  - vina==1.2.5
+  - rdkit==2024.03.5
   - openmm==8.1.2
   - openmmforcefields==0.14.0
   - openff-toolkit==0.16.2
