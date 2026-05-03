@@ -84,6 +84,13 @@ try_create() {
     return 1
 }
 
+clean_caches() {
+    local conda="$1"
+    log "cleaning corrupt conda package caches..."
+    "$conda" clean --packages --tarballs --index-cache --yes >/dev/null 2>&1 || true
+    "$conda" env remove -n "$env_name" --yes >/dev/null 2>&1 || true
+}
+
 ensure_env() {
     local conda="$prefix/bin/conda"
     local mamba="$prefix/bin/mamba"
@@ -98,6 +105,12 @@ ensure_env() {
     log "creating env '$env_name' (this may take 5-15 minutes)..."
     free -h 2>/dev/null | head -2 | sed 's/^/[setup mem] /' || true
 
+    if [[ -x "$mamba" ]] && try_create "$conda" mamba; then return 0; fi
+    if try_create "$conda" libmamba; then return 0; fi
+    if try_create "$conda" classic; then return 0; fi
+
+    log "first pass failed; cleaning caches and retrying once..."
+    clean_caches "$conda"
     if [[ -x "$mamba" ]] && try_create "$conda" mamba; then return 0; fi
     if try_create "$conda" libmamba; then return 0; fi
     if try_create "$conda" classic; then return 0; fi
