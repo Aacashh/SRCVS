@@ -1,0 +1,16 @@
+# Directories to ignore
+out/
+data/raw/
+
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Logs
+*.log
+
+# Environment
+env/
+venv/
+.venv/

@@ -55,20 +55,31 @@ def enumerate_states(mol: Chem.Mol, cfg: LigCfg) -> list:
                 continue
             seen.add(smi)
             out.append(t)
-            if len(out) >= cfg.max_stereo * cfg.max_tautomers:
-                return out
     return out
 
-
 def embed3d(mol: Chem.Mol, seed: int = 42) -> Chem.Mol | None:
-    m = Chem.AddHs(mol)
-    if AllChem.EmbedMolecule(m, randomSeed=seed) != 0:
-        return None
     try:
-        AllChem.MMFFOptimizeMolecule(m, maxIters=500)
+        # validate molecule
+        Chem.SanitizeMol(mol)
+
+        m = Chem.AddHs(mol)
+
+        # embed 3D coordinates
+        if AllChem.EmbedMolecule(m, randomSeed=seed) != 0:
+            return None
+
+        # optimize geometry
+        try:
+            AllChem.MMFFOptimizeMolecule(m, maxIters=500)
+        except Exception:
+            AllChem.UFFOptimizeMolecule(m, maxIters=500)
+
+        return m
+
     except Exception:
-        AllChem.UFFOptimizeMolecule(m, maxIters=500)
-    return m
+        # skip invalid molecules
+        return None
+
 
 
 def to_pdbqt(mol: Chem.Mol, out_path: Path) -> bool:
