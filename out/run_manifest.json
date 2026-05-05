@@ -1,0 +1,9 @@
+{
+  "config": "/home/ankit/Thesis/SRCVS/config.yaml",
+  "stack": "oss",
+  "force": 1,
+  "dry": 0,
+  "phases": [
+    "/home/ankit/Thesis/SRCVS/out/09_mmgbsa_post/manifest.json"
+  ]
+}

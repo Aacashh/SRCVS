@@ -1,0 +1,11 @@
+{
+  "phase": 1,
+  "name": "target_preparation",
+  "stack": "oss",
+  "outputs": {
+    "receptor": "/home/ankit/Thesis/SRCVS/out/01_target/receptor_prepared.pdb",
+    "ligand": "/home/ankit/Thesis/SRCVS/out/01_target/cocrystal_ligand.pdb",
+    "grid": "/home/ankit/Thesis/SRCVS/out/01_target/grid.json",
+    "redock": "/home/ankit/Thesis/SRCVS/out/01_target/redock_rmsd.csv"
+  }
+}

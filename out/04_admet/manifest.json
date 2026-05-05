@@ -1,0 +1,9 @@
+{
+  "phase": 4,
+  "name": "admet_filtering",
+  "stack": "oss",
+  "outputs": {
+    "descriptors": "/home/ankit/Thesis/SRCVS/out/04_admet/admet_descriptors.csv",
+    "passed": "/home/ankit/Thesis/SRCVS/out/04_admet/admet_passed.csv"
+  }
+}

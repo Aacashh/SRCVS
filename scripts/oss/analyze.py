@@ -49,7 +49,7 @@ def analyze_oss_run(top_pdb: Path, traj_dcd: Path, out_dir: Path) -> dict:
     if len(prot_ca) == 0:
         return {}
 
-    rmsd = rms.RMSD(u, prot_ca, select="protein and name CA",
+    rmsd = rms.RMSD(u, u, select="protein and name CA",
                     groupselections=["protein and name CA"] + ([f"index {' '.join(map(str, lig.atoms.indices))}"] if len(lig) else []))
     rmsd.run()
     arr = rmsd.results.rmsd

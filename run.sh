@@ -120,15 +120,18 @@ for p in "${phases[@]}"; do
     log "[phase $p / 9] starting: $desc"
     log "[phase $p] script:  ${names[$p]}.py"
     log "[phase $p] log:     out/logs/phase${p}.log"
+    # Truncate the log file so old errors don't persist
+    : > "$root/out/logs/phase${p}.log"
     extra=()
     [[ "$force" == "1" ]] && extra+=("--force")
     t0=$(date +%s)
-    if out_path=$(python "$script" --config "$config" --stack "$stack" "${extra[@]}" 2>&1); then
+    rc=0
+    out_path=$(python "$script" --config "$config" --stack "$stack" "${extra[@]}" 2>&1) || rc=$?
+    if [[ "$rc" -eq 0 ]]; then
         dt=$(( $(date +%s) - t0 ))
         log "[phase $p] done in ${dt}s — manifest: $out_path"
         outputs+=("$out_path")
     else
-        rc=$?
         log "[phase $p] FAILED (exit $rc) — see out/logs/phase${p}.log"
         echo "$out_path" >&2
         exit $rc

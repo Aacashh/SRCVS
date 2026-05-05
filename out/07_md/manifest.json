@@ -1,0 +1,19 @@
+{
+  "phase": 7,
+  "name": "molecular_dynamics",
+  "stack": "oss",
+  "outputs": {
+    "runs": [
+      {
+        "lead": "44259_01",
+        "seed": 1,
+        "dir": "/home/ankit/Thesis/SRCVS/out/07_md/44259_01/seed1"
+      },
+      {
+        "lead": "72307_01",
+        "seed": 1,
+        "dir": "/home/ankit/Thesis/SRCVS/out/07_md/72307_01/seed1"
+      }
+    ]
+  }
+}

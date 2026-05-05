@@ -1,5 +1,5 @@
 # Directories to ignore
-out/
+# out/
 data/raw/
 
 # Python cache files

@@ -1,0 +1,9 @@
+{
+  "phase": 9,
+  "name": "mmgbsa_post_md",
+  "stack": "oss",
+  "outputs": {
+    "csv": "/home/ankit/Thesis/SRCVS/out/09_mmgbsa_post/mmgbsa_post.csv",
+    "summary": "/home/ankit/Thesis/SRCVS/out/09_mmgbsa_post/mmgbsa_post_summary.csv"
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "phase": 6,
+  "name": "mmgbsa_pre_md",
+  "stack": "oss",
+  "outputs": {
+    "csv": "/home/ankit/Thesis/SRCVS/out/06_mmgbsa_pre/mmgbsa_pre.csv"
+  }
+}

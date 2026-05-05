@@ -52,7 +52,7 @@ admet:
   mdck_min: 25
 
 selection:
-  n_leads: 10
+  n_leads: 5
   cluster_cutoff: 0.4
   fp_radius: 2
   fp_bits: 2048
@@ -66,13 +66,13 @@ md:
   ion_concentration_M: 0.15
   temperature_K: 300.0
   pressure_bar: 1.01325
-  production_ns: 100
-  trajectory_interval_ps: 100
-  replicates: 3
+  production_ns: 2
+  trajectory_interval_ps: 10
+  replicates: 1
   forcefield: amber14-all.xml
-  water_model: amber14/tip3p.xml
+  implicit_solvent: implicit/obc2.xml
   timestep_fs: 2.0
-  equilibration_ns: 1.0
+  equilibration_ns: 0.2
 
 analysis:
   stable_window_ns: 50

@@ -1,0 +1,9 @@
+{
+  "phase": 5,
+  "name": "lead_selection",
+  "stack": "oss",
+  "outputs": {
+    "leads_csv": "/home/ankit/Thesis/SRCVS/out/05_select/final_leads.csv",
+    "leads_sdf": "/home/ankit/Thesis/SRCVS/out/05_select/final_leads.sdf"
+  }
+}

@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import csv
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -85,10 +86,17 @@ def embed3d(mol: Chem.Mol, seed: int = 42) -> Chem.Mol | None:
 def to_pdbqt(mol: Chem.Mol, out_path: Path) -> bool:
     from meeko import MoleculePreparation, PDBQTWriterLegacy
     prep = MoleculePreparation()
-    setups = prep.prepare(mol)
-    if not setups:
-        return False
-    setup = setups[0] if isinstance(setups, list) else setups
+    mol_setups = prep.prepare(mol)
+    # Handle both list and generator returns across Meeko versions
+    if isinstance(mol_setups, list):
+        if not mol_setups:
+            return False
+        setup = mol_setups[0]
+    else:
+        try:
+            setup = next(iter(mol_setups))
+        except (StopIteration, TypeError):
+            return False
     pdbqt_string, is_ok, _ = PDBQTWriterLegacy.write_string(setup)
     if not is_ok:
         return False
@@ -105,9 +113,17 @@ def safe_name(name: str, idx: int) -> str:
 def iter_input(paths: list[Path], limit: int):
     n = 0
     for p in paths:
-        suppl = Chem.SDMolSupplier(str(p), removeHs=False, sanitize=True)
-        for m in suppl:
+        # Use sanitize=False to avoid silently dropping molecules;
+        # we sanitize manually so failures are logged.
+        suppl = Chem.SDMolSupplier(str(p), removeHs=False, sanitize=False)
+        for idx, m in enumerate(suppl):
             if m is None:
+                sys.stderr.write(f"warning: molecule #{idx} in {p.name} could not be read, skipping\n")
+                continue
+            try:
+                Chem.SanitizeMol(m)
+            except Exception as e:
+                sys.stderr.write(f"warning: molecule #{idx} in {p.name} failed sanitization: {e}\n")
                 continue
             yield p.stem, m
             n += 1
@@ -132,11 +148,19 @@ def main() -> int:
     sd_writer = Chem.SDWriter(str(out_sdf))
     rows = [["source", "input_name", "out_name", "smiles", "pdbqt"]]
     counter: dict[str, int] = {}
+    mol_count = 0
+    skip_count = 0
+    t0 = time.time()
     for src, mol in iter_input(a.inputs, cfg.max_input):
+        mol_count += 1
         title = mol.GetProp("_Name") if mol.HasProp("_Name") else ""
+        if mol_count % 25 == 0:
+            elapsed = time.time() - t0
+            sys.stderr.write(f"[ligprep] processed {mol_count} molecules ({skip_count} skipped) in {elapsed:.1f}s\n")
         for state in enumerate_states(mol, cfg):
             embedded = embed3d(state, seed=42)
             if embedded is None:
+                skip_count += 1
                 continue
             counter[title] = counter.get(title, 0) + 1
             sname = safe_name(title, counter[title])
@@ -152,6 +176,8 @@ def main() -> int:
             smi = Chem.MolToSmiles(Chem.RemoveHs(embedded))
             rows.append([src, title, uname, smi, str(pdbqt_path) if ok else ""])
     sd_writer.close()
+    elapsed = time.time() - t0
+    sys.stderr.write(f"[ligprep] done: {mol_count} input molecules, {len(rows)-1} outputs, {skip_count} skipped in {elapsed:.1f}s\n")
     with open(summary_csv, "w", newline="") as fh:
         csv.writer(fh).writerows(rows)
     return 0

@@ -152,6 +152,15 @@ def main() -> int:
         })
 
     df = pd.DataFrame(rows)
+    if df.empty:
+        sys.stderr.write("[admet] WARNING: no molecules could be evaluated\n")
+        header_cols = ["name", "smiles", "score", "mw", "logp", "hbd", "hba",
+                       "tpsa", "rotors", "lipinski_violations", "veber_pass",
+                       "logbb", "caco2", "mdck", "herg_logic50", "pains_pass"]
+        pd.DataFrame(columns=header_cols).to_csv(a.out_dir / "admet_descriptors.csv", index=False)
+        pd.DataFrame(columns=header_cols).to_csv(a.out_dir / "admet_passed.csv", index=False)
+        return 0
+
     df.to_csv(a.out_dir / "admet_descriptors.csv", index=False)
 
     mask = (
@@ -164,6 +173,7 @@ def main() -> int:
         & df["pains_pass"]
     )
     passed = df[mask].sort_values("score").reset_index(drop=True)
+    sys.stderr.write(f"[admet] {len(df)} evaluated, {len(passed)} passed all filters\n")
     passed.to_csv(a.out_dir / "admet_passed.csv", index=False)
     return 0
 

@@ -1,0 +1,11 @@
+{
+  "phase": 8,
+  "name": "trajectory_analysis",
+  "stack": "oss",
+  "outputs": {
+    "summary": "/home/ankit/Thesis/SRCVS/out/08_analysis/summary.csv",
+    "comparative_rmsd": "/home/ankit/Thesis/SRCVS/out/08_analysis/comparative_ligand_rmsd.png",
+    "comparative_rmsf": "/home/ankit/Thesis/SRCVS/out/08_analysis/comparative_rmsf.png",
+    "hbond_means": "/home/ankit/Thesis/SRCVS/out/08_analysis/hbond_means.png"
+  }
+}

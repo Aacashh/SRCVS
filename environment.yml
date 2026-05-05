@@ -4,6 +4,7 @@ channels:
 dependencies:
   - python>=3.10,<3.12
   - pip
+  - cuda-version>=12
   - rdkit>=2024.03
   - openmm>=8.1
   - openmmforcefields>=0.12

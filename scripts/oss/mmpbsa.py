@@ -16,6 +16,12 @@ from openff.toolkit.topology import Molecule
 from openmmforcefields.generators import SMIRNOFFTemplateGenerator
 from rdkit import Chem
 
+# MONKEY PATCH FOR FAST CHARGES
+_orig_assign = Molecule.assign_partial_charges
+def _fast_assign(self, partial_charge_method=None, **kwargs):
+    _orig_assign(self, partial_charge_method="gasteiger", **kwargs)
+Molecule.assign_partial_charges = _fast_assign
+
 
 @dataclass
 class MMCfg:
@@ -57,7 +63,7 @@ def build_complex_system(receptor_pdb: Path, ligand_sdf: Path, ff_name: str):
         constraints=None,
         rigidWater=False,
     )
-    return system, modeller, n_recep
+    return system, modeller, n_recep, smirnoff
 
 
 def split_indices(top: app.Topology, n_recep: int) -> tuple[list[int], list[int]]:
@@ -76,12 +82,13 @@ def potential_energy(system: mm.System, positions, integrator_seed: int = 0) -> 
 
 
 def subset_system(system: mm.System, modeller: app.Modeller,
-                  keep: list[int], ff_name: str) -> tuple[mm.System, list]:
+                  keep: list[int], ff_name: str) -> tuple[app.Topology, list, app.ForceField]:
     keep_set = set(keep)
     new_top = app.Topology()
     new_chain_map: dict = {}
     new_res_map: dict = {}
     new_positions = []
+    old_to_new_atom = {}
     for atom in modeller.topology.atoms():
         if atom.index not in keep_set:
             continue
@@ -93,14 +100,20 @@ def subset_system(system: mm.System, modeller: app.Modeller,
         if rkey not in new_res_map:
             new_res_map[rkey] = new_top.addResidue(atom.residue.name, nc, atom.residue.id)
         nr = new_res_map[rkey]
-        new_top.addAtom(atom.name, atom.element, nr)
+        new_atom = new_top.addAtom(atom.name, atom.element, nr)
+        old_to_new_atom[atom] = new_atom
         new_positions.append(modeller.positions[atom.index])
+    
+    for bond in modeller.topology.bonds():
+        if bond[0] in old_to_new_atom and bond[1] in old_to_new_atom:
+            new_top.addBond(old_to_new_atom[bond[0]], old_to_new_atom[bond[1]], type=bond.type, order=bond.order)
+            
     forcefield = app.ForceField(ff_name, "implicit/gbn2.xml")
     return new_top, new_positions, forcefield
 
 
 def compute_dG_one(receptor_pdb: Path, ligand_sdf: Path, cfg: MMCfg) -> float:
-    system, modeller, n_recep = build_complex_system(receptor_pdb, ligand_sdf, cfg.forcefield)
+    system, modeller, n_recep, smirnoff = build_complex_system(receptor_pdb, ligand_sdf, cfg.forcefield)
     e_complex = potential_energy(system, modeller.positions)
 
     recep_atoms = list(range(n_recep))
@@ -111,6 +124,7 @@ def compute_dG_one(receptor_pdb: Path, ligand_sdf: Path, cfg: MMCfg) -> float:
     e_recep = potential_energy(rec_sys, rec_pos)
 
     lig_top, lig_pos, ff_l = subset_system(system, modeller, lig_atoms, cfg.forcefield)
+    ff_l.registerTemplateGenerator(smirnoff.generator)
     lig_sys = ff_l.createSystem(lig_top, nonbondedMethod=app.NoCutoff)
     e_lig = potential_energy(lig_sys, lig_pos)
 
@@ -155,7 +169,7 @@ def _find_lead_sdf(run_dir: Path, lead: str) -> Path | None:
 
 
 def _build_run_systems(receptor_pdb: Path, ligand_sdf: Path, ff_name: str):
-    sys_full, modeller, n_recep = build_complex_system(receptor_pdb, ligand_sdf, ff_name)
+    sys_full, modeller, n_recep, smirnoff = build_complex_system(receptor_pdb, ligand_sdf, ff_name)
     n_total = modeller.topology.getNumAtoms()
     rec_atoms = list(range(n_recep))
     lig_atoms = list(range(n_recep, n_total))
@@ -164,6 +178,7 @@ def _build_run_systems(receptor_pdb: Path, ligand_sdf: Path, ff_name: str):
     rec_sys = ff_r.createSystem(rec_top, nonbondedMethod=app.NoCutoff)
 
     lig_top, _, ff_l = subset_system(sys_full, modeller, lig_atoms, ff_name)
+    ff_l.registerTemplateGenerator(smirnoff.generator)
     lig_sys = ff_l.createSystem(lig_top, nonbondedMethod=app.NoCutoff)
 
     plat = mm.Platform.getPlatformByName("CPU")

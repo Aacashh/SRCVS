@@ -1,0 +1,11 @@
+{
+  "phase": 3,
+  "name": "virtual_screening",
+  "stack": "oss",
+  "outputs": {
+    "htvs_csv": "/home/ankit/Thesis/SRCVS/out/03_dock/htvs_scores.csv",
+    "sp_csv": "/home/ankit/Thesis/SRCVS/out/03_dock/sp_scores.csv",
+    "xp_csv": "/home/ankit/Thesis/SRCVS/out/03_dock/xp_scores.csv",
+    "poses_dir": "/home/ankit/Thesis/SRCVS/out/03_dock/poses"
+  }
+}

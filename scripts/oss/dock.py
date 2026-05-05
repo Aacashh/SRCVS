@@ -94,7 +94,7 @@ def dock_one(binary: str, receptor_pdbqt: Path, ligand_pdbqt: Path, out_pdbqt: P
         "--exhaustiveness", str(exh),
         "--num_modes", str(cfg.num_modes),
         "--out", str(out_pdbqt),
-        "--cpu", "1",
+        "--cpu", str(cfg.cpu),
     ]
     res = subprocess.run(cmd, capture_output=True, text=True)
     if res.returncode != 0:
@@ -151,7 +151,10 @@ def main() -> int:
 
     htvs_rows: list = []
     htvs_dir = poses_dir / "_htvs"
-    for lp in ligand_files:
+    total = len(ligand_files)
+    for i, lp in enumerate(ligand_files, 1):
+        if i % 10 == 0 or i == total:
+            sys.stderr.write(f"[dock] HTVS: {i}/{total}\n")
         out_p = htvs_dir / f"{lp.stem}.pdbqt"
         score = dock_one(binary, receptor_pdbqt, lp, out_p, center, size, cfg,
                          exh=max(4, cfg.exhaustiveness // 2))
@@ -159,11 +162,17 @@ def main() -> int:
             htvs_rows.append([lp.stem, score, str(out_p)])
     htvs_rows.sort(key=lambda r: r[1])
     write_csv(a.out_dir / "htvs_scores.csv", ["title", "score", "pose"], htvs_rows)
+    if not htvs_rows:
+        sys.stderr.write("[dock] WARNING: no ligands scored in HTVS\n")
+        write_csv(a.out_dir / "sp_scores.csv", ["title", "score", "pose"], [])
+        write_csv(a.out_dir / "xp_scores.csv", ["title", "score", "pose", "sdf"], [])
+        return 0
 
     n_sp = max(1, int(len(htvs_rows) * cfg.htvs_keep_pct / 100.0))
     sp_inputs = htvs_rows[:n_sp]
     sp_rows: list = []
     sp_dir = poses_dir / "_sp"
+    sys.stderr.write(f"[dock] SP stage: {len(sp_inputs)} ligands\n")
     for title, _, _ in sp_inputs:
         lp = a.pdbqt_dir / f"{title}.pdbqt"
         out_p = sp_dir / f"{title}.pdbqt"
@@ -178,6 +187,7 @@ def main() -> int:
     n_xp = max(n_xp_pct, cfg.xp_top_n) if cfg.xp_top_n else n_xp_pct
     xp_inputs = sp_rows[:n_xp]
     xp_rows: list = []
+    sys.stderr.write(f"[dock] XP stage: {len(xp_inputs)} ligands\n")
     for title, _, _ in xp_inputs:
         lp = a.pdbqt_dir / f"{title}.pdbqt"
         out_p = poses_dir / f"{title}.pdbqt"
@@ -189,6 +199,7 @@ def main() -> int:
             xp_rows.append([title, score, str(out_p), str(sdf_p)])
     xp_rows.sort(key=lambda r: r[1])
     write_csv(a.out_dir / "xp_scores.csv", ["title", "score", "pose", "sdf"], xp_rows)
+    sys.stderr.write(f"[dock] done: HTVS={len(htvs_rows)} SP={len(sp_rows)} XP={len(xp_rows)}\n")
     return 0
 
 
